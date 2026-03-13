@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 import datetime
 import os
 
-SHOW_URL = "https://in.bookmyshow.com/buytickets/iron-lung-mumbai/movie-mumbai-ET00490088-MT/20260315"
+SHOW_URL = "https://in.bookmyshow.com/movies/mumbai/seat-layout/ET00490088/CSWO/4094/20260315"
 LOG_FILE = "seat_tracking.csv"
 
 async def track_seats():
