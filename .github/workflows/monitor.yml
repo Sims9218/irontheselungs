@@ -1,12 +1,12 @@
-name: Movie Seat Monitor
+name: Movie API Monitor
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs every hour
-  workflow_dispatch: # Allows manual trigger for testing
+    - cron: '0 * * * *' # Runs exactly every hour
+  workflow_dispatch:
 
 jobs:
-  scrape-and-log:
+  run-tracker:
     runs-on: ubuntu-latest
     
     permissions:
@@ -21,33 +21,26 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Playwright and Browser
+      - name: Install Dependencies
         run: |
-          pip install playwright
-          python -m playwright install chromium --with-deps
+          python -m pip install --upgrade pip
+          pip install requests
 
-      - name: Run Seat Tracker
+      - name: Run API Seat Tracker
         run: python bot.py
 
-      - name: Upload Error Screenshot if Failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshot
-          path: error_screenshot.png
-          retention-days: 1
-
       - name: Commit and Push Data
-        if: always() # Try to push even if the bot log shows 0 seats, as long as CSV exists
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
           
+          # Only proceed if the CSV file exists
           if [ -f seat_tracking.csv ]; then
             git add seat_tracking.csv
-            git commit -m "Update seat counts: $(date)" || true
+            # '|| true' ensures the workflow doesn't fail if there are no new bookings to commit
+            git commit -m "API Update: $(date)" || true
             git push
           else
-            echo "CSV file not found. Script likely crashed before saving."
+            echo "Error: seat_tracking.csv not found. Check bot.py logs for API failures."
             exit 1
           fi
