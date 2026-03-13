@@ -1,67 +1,75 @@
-import asyncio
-from playwright.async_api import async_playwright
+import requests
 import datetime
 import os
+import json
 
-# The URL from your screenshot
-SHOW_URL = "https://in.bookmyshow.com/movies/mumbai/seat-layout/ET00490088/CSWO/4094/20260315"
+API_URL = "https://www.district.in/gw/consumer/movies/v1/select-seat?version=3&site_id=1&channel=mweb&child_site_id=1&platform=district"
+
+HEADERS = {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9",
+    "api_source": "district",
+    "content-type": "application/json; charset=utf-8",
+    "origin": "https://www.district.in",
+    "referer": "https://www.district.in/movies/iron-lung-movie-tickets-in-navi-mumbai-MV215565?frmtid=6hxsglxlg&fromdate=2026-03-15",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 OPR/128.0.0.0",
+    "x-app-type": "ed_mweb",
+    "x-guest-token": "1773420604139_116858561187815570_6i942lkptu7",
+    "cookie": "AKA_A2=A; ak_bmsc=F1ABAF671DC5A6C818EAA044B3B68A0~000000000000000000000000000000; bm_sv=8C12712797DAD958FE7A1A18830AB719~YAAQLXZFF3AHk7aQAAGbMa6B/QryCQQvGV8Yu0+qntJltBt6nyMquJrUax5zl574YSHN43yUZEePTl3Z+yp1rJAM8n0s+Kd58aZACRFEFHninvhqkgY20XxGI+kTd4ghyh/G5WOp6SRzO/fTBiDrEzhqL2FEYXEKO79Eg/GQ4GybyxDkw1AgoAz/oGXDpksBGCOboXFcEMOnfpTKki7qPkc2ih5nT6g5u7vXxUDRK6o/eFBHdh3dhHrknwcSTvKGIA==~1; _dd_s=rum=0&expire=1773421504137"
+}
+
+PAYLOAD = {
+    "cinemaId": "57700",
+    "sessionId": "4094",
+    "providerId": "335",
+    "screenOnTop": True,
+    "freeSeating": False,
+    "screenFormat": "2D",
+    "moviecode": "OB87P3",
+    "config": {"socialDistancing": 1},
+    "contentId": "215565"
+}
+
 LOG_FILE = "seat_tracking.csv"
 
-async def track_seats():
-    async with async_playwright() as p:
-        # Launching with a wider viewport to ensure all popups are visible and clickable
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
+def track_seats():
+    print(f"Requesting data for Iron Lung (4:15 PM) at Cinepolis Seawoods...")
+    
+    response = requests.post(API_URL, headers=HEADERS, json=PAYLOAD)
+    
+    if response.status_code != 200:
+        print(f"Failed to fetch data! Status: {response.status_code}")
+        print(f"Response: {response.text}")
+        return
+
+    try:
+        res_data = response.json()
+        booked_count = 0
+        total_seats = 0
         
-        print(f"Navigating to layout...")
-        await page.goto(SHOW_URL, wait_until="networkidle")
-
-        try:
-            # 1. Handle the "Select Number of Seats" popup (e.g., Select 2, 4, etc.)
-            # We try to click 'Select Seats' or just click '2' then 'Select Seats'
-            if await page.locator("#btn-accept").is_visible(timeout=5000):
-                await page.click("#btn-accept")
-                print("Accepted Terms.")
-            
-            # If the "How many seats" popup appears, we click '2' and 'Select Seats'
-            qty_popup = page.locator("ul#qty-sel li").first
-            if await qty_popup.is_visible(timeout=3000):
-                await qty_popup.click()
-                await page.click("#proceed-qty")
-                print("Handled seat quantity popup.")
-
-            # 2. Use a more generic selector for the seats
-            # BMS seats often use 'a.seatR' or 'a.seatA' or have 'data-seat-type'
-            print("Waiting for seat elements...")
-            await page.wait_for_selector("a.seatR, a.seatA, ._available, ._booked", timeout=15000)
-            
-            # 3. Targeted counting using the classes typically found in the layout
-            # Available seats are usually 'a.seatA', Booked are 'a.seatR' (Reserved)
-            booked = await page.locator("a.seatR, ._booked").count()
-            available = await page.locator("a.seatA, ._available").count()
-            total = booked + available
-
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            
-            # Write to CSV
-            file_exists = os.path.isfile(LOG_FILE)
-            with open(LOG_FILE, "a") as f:
-                if not file_exists:
-                    f.write("Timestamp,Total Seats,Booked Seats\n")
-                f.write(f"{timestamp},{total},{booked}\n")
-            
-            print(f"[{timestamp}] SUCCESS: {booked}/{total} seats booked.")
-
-        except Exception as e:
-            # This is crucial: check the 'Actions' tab artifacts for this image if it fails!
-            await page.screenshot(path="error_screenshot.png")
-            print(f"Critical Error: {e}")
+        layout = res_data.get('data', {}).get('seatLayout', {})
+        areas = layout.get('areas', [])
         
-        await browser.close()
+        for area in areas:
+            for row in area.get('rows', []):
+                for seat in row.get('seats', []):
+                    total_seats += 1
+                    if seat.get('status') != 0:
+                        booked_count += 1
+
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        file_exists = os.path.isfile(LOG_FILE)
+        with open(LOG_FILE, "a") as f:
+            if not file_exists:
+                f.write("Timestamp,Total Seats,Booked Seats\n")
+            f.write(f"{timestamp},{total_seats},{booked_count}\n")
+        
+        print(f"[{timestamp}] Success: {booked_count}/{total_seats} seats booked.")
+
+    except Exception as e:
+        print(f"Error parsing JSON: {e}")
+        print("JSON structure keys:", res_data.keys() if 'res_data' in locals() else "None")
 
 if __name__ == "__main__":
-    asyncio.run(track_seats())
+    track_seats()
