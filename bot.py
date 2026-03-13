@@ -40,24 +40,29 @@ def track_seats():
     booked_count = 0
     total_seats = 0
 
-    def find_seats(obj):
+    def find_seats_recursive(item):
         nonlocal booked_count, total_seats
-        if isinstance(obj, dict):
-            if "status" in obj and ("seatId" in obj or "name" in obj):
+        
+        if isinstance(item, dict):
+            is_seat = any(key in item for key in ["objSeat", "seatId", "sStatus", "status"])
+            
+            if is_seat and ("status" in item or "sStatus" in item):
                 total_seats += 1
-                if obj["status"] != 0:
+                status = item.get("status") if "status" in item else item.get("sStatus")
+                if str(status) != "0":
                     booked_count += 1
-            for value in obj.values():
-                find_seats(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                find_seats(item)
+            
+            for value in item.values():
+                find_seats_recursive(value)
+                
+        elif isinstance(item, list):
+            for entry in item:
+                find_seats_recursive(entry)
 
-    find_seats(data)
+    find_seats_recursive(data)
 
     if total_seats == 0:
-        print("Error: No seats found in the JSON response. The layout structure might have changed.")
-        print(json.dumps(data, indent=2)[:500]) 
+        print("FAILED: No seats found even with recursive search.")
         return
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -68,7 +73,7 @@ def track_seats():
             f.write("Timestamp,Total Seats,Booked Seats\n")
         f.write(f"{timestamp},{total_seats},{booked_count}\n")
     
-    print(f"[{timestamp}] Successfully found {total_seats} seats. {booked_count} are booked.")
+    print(f"[{timestamp}] FOUND: {total_seats} total seats. BOOKED: {booked_count}")
 
 if __name__ == "__main__":
     track_seats()
