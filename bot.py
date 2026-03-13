@@ -7,11 +7,8 @@ API_URL = "https://www.district.in/gw/consumer/movies/v1/select-seat?version=3&s
 
 HEADERS = {
     "accept": "application/json",
-    "accept-language": "en-US,en;q=0.9",
     "api_source": "district",
     "content-type": "application/json; charset=utf-8",
-    "origin": "https://www.district.in",
-    "referer": "https://www.district.in/movies/iron-lung-movie-tickets-in-navi-mumbai-MV215565?frmtid=6hxsglxlg&fromdate=2026-03-15",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 OPR/128.0.0.0",
     "x-app-type": "ed_mweb",
     "x-guest-token": "1773420604139_116858561187815570_6i942lkptu7",
@@ -33,43 +30,45 @@ PAYLOAD = {
 LOG_FILE = "seat_tracking.csv"
 
 def track_seats():
-    print(f"Requesting data for Iron Lung (4:15 PM) at Cinepolis Seawoods...")
-    
     response = requests.post(API_URL, headers=HEADERS, json=PAYLOAD)
     
     if response.status_code != 200:
-        print(f"Failed to fetch data! Status: {response.status_code}")
-        print(f"Response: {response.text}")
+        print(f"API Error {response.status_code}: {response.text}")
         return
 
-    try:
-        res_data = response.json()
-        booked_count = 0
-        total_seats = 0
-        
-        layout = res_data.get('data', {}).get('seatLayout', {})
-        areas = layout.get('areas', [])
-        
-        for area in areas:
-            for row in area.get('rows', []):
-                for seat in row.get('seats', []):
-                    total_seats += 1
-                    if seat.get('status') != 0:
-                        booked_count += 1
+    data = response.json()
+    booked_count = 0
+    total_seats = 0
 
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-        file_exists = os.path.isfile(LOG_FILE)
-        with open(LOG_FILE, "a") as f:
-            if not file_exists:
-                f.write("Timestamp,Total Seats,Booked Seats\n")
-            f.write(f"{timestamp},{total_seats},{booked_count}\n")
-        
-        print(f"[{timestamp}] Success: {booked_count}/{total_seats} seats booked.")
+    def find_seats(obj):
+        nonlocal booked_count, total_seats
+        if isinstance(obj, dict):
+            if "status" in obj and ("seatId" in obj or "name" in obj):
+                total_seats += 1
+                if obj["status"] != 0:
+                    booked_count += 1
+            for value in obj.values():
+                find_seats(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                find_seats(item)
 
-    except Exception as e:
-        print(f"Error parsing JSON: {e}")
-        print("JSON structure keys:", res_data.keys() if 'res_data' in locals() else "None")
+    find_seats(data)
+
+    if total_seats == 0:
+        print("Error: No seats found in the JSON response. The layout structure might have changed.")
+        print(json.dumps(data, indent=2)[:500]) 
+        return
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    file_exists = os.path.isfile(LOG_FILE)
+    with open(LOG_FILE, "a") as f:
+        if not file_exists:
+            f.write("Timestamp,Total Seats,Booked Seats\n")
+        f.write(f"{timestamp},{total_seats},{booked_count}\n")
+    
+    print(f"[{timestamp}] Successfully found {total_seats} seats. {booked_count} are booked.")
 
 if __name__ == "__main__":
     track_seats()
